@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Commission Calculator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { background-color: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
+    input, select, button { padding: 0.5rem; margin: 0.3rem 0; border: none; border-radius: 5px; }
+    input[type="file"], select { background-color: #222; color: #fff; }
+    button { background-color: #444; color: white; cursor: pointer; }
+    button:hover { background-color: #666; }
+    .back-button { display: inline-block; margin-bottom: 1rem; padding: 0.5rem 1rem; background-color: #444; color: white; text-decoration: none; border-radius: 5px; }
+    .section { margin-bottom: 2rem; }
+    table { width: 100%; margin-top: 2rem; border-collapse: collapse; }
+    th, td { border: 1px solid #666; padding: 0.5rem; text-align: left; }
+    th { background-color: #222; }
+    .error { color: red; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <a class="back-button" href="index.html">← Back to Home</a>
+  <h1>Commission Calculator</h1>
+  <div class="section">
+    <label>Select Excel File:</label><br>
+    <input type="file" id="excelFile" accept=".xlsx,.xls">
+  </div>
+  <div class="section">
+    <label>Select Customer:</label><br>
+    <select id="customerSelect">
+      <option value="">-- Select Customer --</option>
+    </select>
+  </div>
+  <div class="section">
+    <button onclick="processExcel()">Calculate Commission</button>
+    <div id="errorOutput" class="error"></div>
+  </div>
+  <div id="results"></div>
+  <div class="section">
+    <button onclick="exportToExcel()">Export to Excel</button>
+  </div>
+  <script>
+    let lastExportData = [];
+
+    function exportToExcel() {
+      if (!lastExportData.length) {
+        alert("Please run a calculation first.");
+        return;
+      }
+      // Convert JSON data to a worksheet.
+      const ws = XLSX.utils.json_to_sheet(lastExportData);
+
+      // Loop over all cells to (a) convert numeric strings to numbers,
+      // and (b) apply red fill to columns S, V, and W.
+      for (let cell in ws) {
+        if (cell[0] === '!') continue; // Skip special keys
+
+        // Convert numeric strings to numbers so Excel will treat them as numbers.
+        if (!isNaN(ws[cell].v) && typeof ws[cell].v === 'string') {
+          ws[cell].v = parseFloat(ws[cell].v);
+          ws[cell].t = 'n';
+        }
+
+        // Extract the column letters from the cell reference.
+        const colLetters = cell.match(/^[A-Z]+/)[0];
+        // Check if the cell is in column S, V, or W.
+        if (colLetters === 'S' || colLetters === 'V' || colLetters === 'W') {
+          ws[cell].s = ws[cell].s || {};
+          ws[cell].s.fill = {
+            patternType: "solid",
+            fgColor: { rgb: "FFFF0000" } // Red fill
+          };
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Commission Report");
+      XLSX.writeFile(wb, "commission_report.xlsx");
+    }
+
+    const customerSelect = document.getElementById('customerSelect');
+    const customers = JSON.parse(localStorage.getItem('customers') || '[]');
+    const products = JSON.parse(localStorage.getItem('products') || '[]');
+
+    customers.sort((a, b) => a.custDesc.localeCompare(b.custDesc)).forEach((c, index) => {
+      const option = document.createElement('option');
+      option.value = index;
+      option.textContent = c.custDesc;
+      customerSelect.appendChild(option);
+    });
+
+    function processExcel() {
+      document.getElementById('errorOutput').textContent = ''; // Clear previous error
+      const file = document.getElementById('excelFile').files[0];
+      const customer = customers[customerSelect.value];
+      if (!file || !customer) {
+        alert('Please select a file and a customer.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+
+        let unmatchedProducts = [];
+
+        const output = rows.map(row => {
+          const product = products.find(p => p.productNum == row['Product Number']);
+          if (!product) {
+            unmatchedProducts.push(row['Product Number']);
+            return null;
+          }
+
+          const pack = parseFloat(product.pack);
+          const tihi = parseFloat(product.tihi);
+          const freight = parseFloat(customer.freight);
+          const markup = parseFloat(customer.markup);
+          const commissionRate = parseFloat(customer.commission);
+
+          const shippedQty = parseFloat(row['Shipped Qty']);
+          const shippedPrice = parseFloat(row['Shipped Price']);
+
+          const soldCasePrice = shippedPrice / shippedQty;
+          const soldUnitPrice = soldCasePrice / pack;
+
+          const freightPerCase = freight / tihi;
+          const freightPerUnit = freightPerCase / pack;
+
+          const preFreightUnit = soldUnitPrice - freightPerUnit;
+          const markupFinal = preFreightUnit * markup;
+          const commissionPerUnit = preFreightUnit * commissionRate;
+          const comishFix = commissionPerUnit * commissionRate;
+          const finalCommissionPerUnit = commissionPerUnit - comishFix;
+          const finalCommissionPerCase = finalCommissionPerUnit * pack;
+          const totalCommission = finalCommissionPerCase * shippedQty;
+          const baseUnit = soldUnitPrice - freightPerUnit - markupFinal - finalCommissionPerUnit;
+          const baseCase = baseUnit * pack;
+
+          return {
+            'Product Number': row['Product Number'],
+            'Sold Unit Price': parseFloat(soldUnitPrice.toFixed(4)),
+            'Sold Case Price': parseFloat(soldCasePrice.toFixed(4)),
+            'Freight per Unit': parseFloat(freightPerUnit.toFixed(4)),
+            'Freight per Case': parseFloat(freightPerCase.toFixed(4)),
+            'Pre Freight Unit': parseFloat(preFreightUnit.toFixed(4)),
+            'Markup Final': parseFloat(markupFinal.toFixed(4)),
+            'Commission per Unit': parseFloat(commissionPerUnit.toFixed(4)),
+            'Comish Fix': parseFloat(comishFix.toFixed(4)),
+            'Final Commission per Unit': parseFloat(finalCommissionPerUnit.toFixed(4)),
+            'Final Commission per Case': parseFloat(finalCommissionPerCase.toFixed(4)),
+            'Total Commission': parseFloat(totalCommission.toFixed(4)),
+            'Base Unit': parseFloat(baseUnit.toFixed(4)),
+            'Base Case': parseFloat(baseCase.toFixed(4))
+          };
+        }).filter(Boolean);
+
+        if (unmatchedProducts.length > 0) {
+          document.getElementById('errorOutput').textContent =
+            "Unmatched Product Numbers: " + unmatchedProducts.join(", ");
+        }
+
+        lastExportData = rows.map((r, i) => {
+          const product = products.find(p => p.productNum == r['Product Number']);
+          const customer = customers[customerSelect.value];
+          const calculated = output[i] || {};
+          const base = Object.assign({}, r);
+          if (product) {
+            base['TIHI'] = product.tihi;
+            base['Pack'] = product.pack;
+          }
+          if (customer) {
+            calculated['Markup %'] = customer.markup;
+          }
+          return Object.assign({}, base, calculated, {
+            'Markup %': calculated['Markup %'],
+            'Markup Final': calculated['Markup Final'],
+          });
+        });
+
+        const cleanedExport = lastExportData.map(row => {
+          const clone = Object.assign({}, row);
+          const toRemove = ["State / Province","Class","Location Group","Order Date Issued","Order Date Scheduled","Order Date Fulfilled","UOM_1","UOM_2","Remaining Price","Item Date Scheduled","Item Date Fulfilled","Ordered Qty","Ordered Price","Remaining Qty" ];
+          toRemove.forEach(key => delete clone[key]);
+
+          // Reorder Markup % before Markup Final
+          if ('Markup %' in clone && 'Markup Final' in clone) {
+            const reordered = {};
+            for (let key in clone) {
+              if (key === 'Markup Final') reordered['Markup %'] = clone['Markup %'];
+              if (key !== 'Markup %') reordered[key] = clone[key];
+            }
+            return reordered;
+          }
+
+          return clone;
+        });
+
+        lastExportData = cleanedExport;
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  </script>
+</body>
+</html>

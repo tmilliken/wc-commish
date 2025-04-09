@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Salespeople Settings</title>
+  <style>
+    body { background-color: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
+    input, button { padding: 0.5rem; margin: 0.3rem; border: none; border-radius: 5px; }
+    input { background-color: #222; color: #fff; }
+    button { background-color: #444; color: white; cursor: pointer; }
+    button:hover { background-color: #666; }
+    .entry { border: 1px solid #444; padding: 1rem; margin-top: 0.5rem; border-radius: 5px; }
+    .entry input[disabled] { opacity: 0.6; }
+  </style>
+</head>
+<body>
+<a href="index.html" style="display:inline-block;margin-bottom:1rem;padding:0.5rem 1rem;background-color:#444;color:white;text-decoration:none;border-radius:5px;">← Back to Home</a>
+<h1>Salespeople Settings</h1>
+<input id="name" placeholder="Name">
+<input id="email" placeholder="Email">
+<button onclick="addSalesperson()">Add Salesperson</button>
+<div id="salesList"></div>
+<script>
+function loadSalespeople() {
+  try {
+    return JSON.parse(localStorage.getItem('salespeople') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+let salespeople = loadSalespeople();
+function save() {
+  localStorage.setItem('salespeople', JSON.stringify(salespeople));
+  render();
+}
+function addSalesperson() {
+  const nameInput = document.getElementById('name');
+  const emailInput = document.getElementById('email');
+  const name = nameInput.value.trim();
+  const email = emailInput.value.trim();
+  if (!name || !email) {
+    alert("Please fill in both name and email.");
+    return;
+  }
+  salespeople.push({ name, email, lastPaid: null });
+  nameInput.value = '';
+  emailInput.value = '';
+  save();
+}
+function deleteSalesperson(index) {
+  if (confirm("Delete this salesperson?")) {
+    salespeople.splice(index, 1);
+    save();
+  }
+}
+function enableEdit(index) {
+  document.querySelectorAll(`.entry[data-index='${index}'] input`).forEach(i => i.disabled = false);
+  document.getElementById(`save-${index}`).style.display = 'inline';
+}
+function saveEdit(index) {
+  const inputs = document.querySelector(`.entry[data-index='${index}']`).querySelectorAll("input");
+  salespeople[index] = { name: inputs[0].value, email: inputs[1].value, lastPaid: salespeople[index].lastPaid };
+  save();
+}
+function render() {
+  const list = document.getElementById('salesList');
+  list.innerHTML = '';
+  salespeople.sort((a, b) => a.name.localeCompare(b.name)).forEach((s, i) => {
+    const e = document.createElement('div');
+    e.className = 'entry';
+    e.dataset.index = i;
+    e.innerHTML = `<input value="${s.name}" disabled><input value="${s.email}" disabled>
+      <button onclick="enableEdit(${i})">Edit</button>
+      <button id="save-${i}" onclick="saveEdit(${i})" style="display:none;">Save</button>
+      <button onclick="deleteSalesperson(${i})">Delete</button>`;
+    list.appendChild(e);
+  });
+}
+render();
+</script>
+</body>
+</html>

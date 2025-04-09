@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Products</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { background-color: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
+    input, button { padding: 0.5rem; margin: 0.3rem; border: none; border-radius: 5px; }
+    input { background-color: #222; color: #fff; }
+    button { background-color: #444; color: white; cursor: pointer; }
+    button:hover { background-color: #666; }
+    .entry { border: 1px solid #444; padding: 1rem; margin-top: 0.5rem; border-radius: 5px; }
+    .entry input { margin: 0.2rem 0.5rem 0.2rem 0; }
+    .entry input[disabled] { opacity: 0.6; }
+    .flex-container { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; }
+    .product-section { flex: 2; }
+    .import-section { flex: 1; border: 1px solid #444; padding: 1rem; border-radius: 5px; background-color: #111; }
+    .delete-all { background-color: red; }
+  </style>
+</head>
+<body>
+<a href="index.html" style="display:inline-block;margin-bottom:1rem;padding:0.5rem 1rem;background-color:#444;color:white;text-decoration:none;border-radius:5px;">← Back to Home</a>
+<h1>Products Settings</h1>
+<div class="flex-container">
+  <div class="product-section">
+    <input id="desc" placeholder="Description">
+    <input id="productNum" placeholder="Product Number">
+    <input id="pack" placeholder="Pack">
+    <input id="tihi" placeholder="TIHI">
+    <button onclick="addProduct()">Add Product</button>
+    <div id="productList"></div>
+  </div>
+  <div class="import-section">
+    <h3>Import / Export</h3>
+    <button onclick="downloadTemplate()">Download Import Template</button><br><br>
+    <input type="file" id="importFile" accept=".xlsx,.xls"><br>
+    <button onclick="importProducts()">Import Products</button><br><br>
+    <button onclick="exportProducts()">Export Products</button>
+    <div style="text-align: right; margin-top: 20px;">
+      <button class="delete-all" onclick="deleteAllProducts()">Delete All Products</button>
+    </div>
+  </div>
+</div>
+<script>
+let products = JSON.parse(localStorage.getItem('products') || '[]');
+function save() { 
+  localStorage.setItem('products', JSON.stringify(products)); 
+  render(); 
+}
+function addProduct() {
+  const desc = document.getElementById('desc').value;
+  const productNum = document.getElementById('productNum').value;
+  const pack = document.getElementById('pack').value;
+  const tihi = document.getElementById('tihi').value;
+  products.push({ desc, productNum, pack, tihi });
+  save();
+}
+function deleteProduct(index) { 
+  products.splice(index, 1); 
+  save(); 
+}
+function enableEdit(index) {
+  document.querySelectorAll(`.entry[data-index='${index}'] input`).forEach(i => i.disabled = false);
+  document.getElementById(`save-${index}`).style.display = 'inline';
+}
+function saveEdit(index) {
+  const inputs = document.querySelector(`.entry[data-index='${index}']`).querySelectorAll("input");
+  products[index] = { 
+    desc: inputs[0].value, 
+    productNum: inputs[1].value, 
+    pack: inputs[2].value, 
+    tihi: inputs[3].value 
+  };
+  save();
+}
+// Helper function to escape HTML special characters.
+function escapeHTML(text) {
+  if (!text) return "";
+  return text.replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+}
+function render() {
+  products.sort((a, b) => a.desc.localeCompare(b.desc));
+  const list = document.getElementById('productList'); 
+  list.innerHTML = '';
+  products.forEach((p, i) => {
+    const e = document.createElement('div'); 
+    e.className = 'entry'; 
+    e.dataset.index = i;
+    e.innerHTML = `<input value="${escapeHTML(p.desc)}" disabled>
+                   <input value="${escapeHTML(p.productNum)}" disabled>
+                   <input value="${escapeHTML(p.pack)}" disabled>
+                   <input value="${escapeHTML(p.tihi)}" disabled>
+                   <button onclick="enableEdit(${i})">Edit</button>
+                   <button id="save-${i}" onclick="saveEdit(${i})" style="display:none;">Save</button>
+                   <button onclick="deleteProduct(${i})">Delete</button>`;
+    list.appendChild(e);
+  });
+}
+function downloadTemplate() {
+  const ws = XLSX.utils.aoa_to_sheet([["Description", "Product Number", "Pack", "TIHI"]]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Template");
+  XLSX.writeFile(wb, "product_import_template.xlsx");
+}
+function importProducts() {
+  const file = document.getElementById('importFile').files[0];
+  if (!file) return alert("Please select a file to import.");
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const data = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(data, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    // Use defval to ensure full cell values are returned
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    rows.forEach(row => {
+      if (row['Description'] && row['Product Number'] && row['Pack'] && row['TIHI']) {
+        products.push({
+          desc: String(row['Description']),
+          productNum: String(row['Product Number']),
+          pack: String(row['Pack']),
+          tihi: String(row['TIHI'])
+        });
+      }
+    });
+    save();
+  };
+  reader.readAsArrayBuffer(file);
+}
+function exportProducts() {
+  if (!products.length) return alert("No products to export.");
+  const ws = XLSX.utils.json_to_sheet(products.map(p => ({
+    'Description': p.desc,
+    'Product Number': p.productNum,
+    'Pack': p.pack,
+    'TIHI': p.tihi
+  })));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Products");
+  XLSX.writeFile(wb, "products_export.xlsx");
+}
+function deleteAllProducts() {
+  if (confirm("Are you sure you want to delete all products?")) {
+    if (confirm("This will permanently delete all products. Are you really sure?")) {
+      products = [];
+      save();
+    }
+  }
+}
+render();
+</script>
+</body>
+</html>

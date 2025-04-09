@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Payout Recorder</title>
+  <style>
+    body { background-color: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
+    select, input, button { margin: 0.5rem; padding: 0.4rem 0.7rem; border-radius: 5px; border: none; font-size: 0.9rem; }
+    button { background-color: #444; color: white; cursor: pointer; }
+    button:hover { background-color: #666; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 2rem; }
+    .month { background: #111; border-radius: 5px; padding: 0.5rem; }
+    .month-name { font-weight: bold; margin-bottom: 0.3rem; text-align: center; font-size: 0.95rem; }
+    .day-names, .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 0.7rem; text-align: center; }
+    .day { padding: 0.3rem 0; border-radius: 3px; }
+    .paid { background-color: green; }
+    .unpaid { background-color: red; }
+    .neutral { background-color: #333; }
+    .future { background-color: transparent; }
+    .history { margin-top: 3rem; }
+    .history h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+    .history ul { list-style-type: none; padding: 0; font-size: 0.85rem; }
+    .history li { margin-bottom: 0.3rem; }
+  </style>
+</head>
+<body>
+<a href="index.html" style="display:inline-block;margin-bottom:1rem;padding:0.4rem 0.8rem;background-color:#444;color:white;text-decoration:none;border-radius:5px;">← Back to Home</a>
+<h1 style="font-size: 1.5rem;">Payout Recorder</h1>
+<select id="salespersonSelect"></select>
+<select id="yearSelect"></select>
+<input type="date" id="paidUpToDate">
+<button onclick="markPaid()">Pay up to date</button>
+<div id="calendarGrid" class="calendar-grid"></div>
+<div class="history">
+  <h2>Payout History</h2>
+  <ul id="payoutHistoryList"></ul>
+</div>
+<script>
+function getDaysInMonth(year, month) {
+  return new Date(year, month + 1, 0).getDate();
+}
+function getFirstDayOfWeek(year, month) {
+  return new Date(year, month, 1).getDay();
+}
+let salespeople = JSON.parse(localStorage.getItem('salespeople') || '[]');
+const salespersonSelect = document.getElementById('salespersonSelect');
+const yearSelect = document.getElementById('yearSelect');
+const today = new Date();
+const currentYear = today.getFullYear();
+
+// Populate year options
+for (let y = Math.max(2024, currentYear - 5); y <= currentYear; y++) {
+  const option = document.createElement('option');
+  option.value = y;
+  option.textContent = y;
+  yearSelect.appendChild(option);
+}
+yearSelect.value = currentYear;
+
+// Populate salesperson dropdown
+salespeople.forEach((s, i) => {
+  const opt = document.createElement('option');
+  opt.value = i;
+  opt.textContent = s.name;
+  salespersonSelect.appendChild(opt);
+});
+document.getElementById('paidUpToDate').valueAsDate = today;
+
+function markPaid() {
+  const index = salespersonSelect.value;
+  // Use valueAsDate to read the date as a Date object and then convert it to YYYY-MM-DD format.
+  const dateObj = document.getElementById('paidUpToDate').valueAsDate;
+  if (index !== "" && dateObj) {
+    const dateString = dateObj.toISOString().split('T')[0];
+    const confirmMsg = `Are you sure you want to mark commissions paid up to ${dateString}?`;
+    if (confirm(confirmMsg)) {
+      salespeople[index].lastPaid = dateString;
+      salespeople[index].history = salespeople[index].history || [];
+      salespeople[index].history.unshift(`${new Date().toLocaleString()} - Paid up to ${dateString}`);
+      localStorage.setItem('salespeople', JSON.stringify(salespeople));
+      renderCalendar();
+      renderHistory();
+    }
+  }
+}
+
+function renderCalendar() {
+  const index = salespersonSelect.value;
+  const selectedYear = parseInt(yearSelect.value, 10);
+  const grid = document.getElementById('calendarGrid');
+  grid.innerHTML = '';
+
+  let lastPaid = null;
+  if (index !== "" && salespeople[index].lastPaid) {
+    // Parse the stored "YYYY-MM-DD" string as a local date.
+    const parts = salespeople[index].lastPaid.split('-');
+    lastPaid = new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  for (let month = 0; month < 12; month++) {
+    const monthDiv = document.createElement('div');
+    monthDiv.className = 'month';
+
+    const monthName = new Date(selectedYear, month).toLocaleString('default', { month: 'long' });
+    const header = document.createElement('div');
+    header.className = 'month-name';
+    header.textContent = monthName;
+    monthDiv.appendChild(header);
+
+    const dayNames = document.createElement('div');
+    dayNames.className = 'day-names';
+    ['S','M','T','W','T','F','S'].forEach(d => {
+      const el = document.createElement('div');
+      el.textContent = d;
+      dayNames.appendChild(el);
+    });
+    monthDiv.appendChild(dayNames);
+
+    const calendar = document.createElement('div');
+    calendar.className = 'calendar';
+
+    const firstDay = getFirstDayOfWeek(selectedYear, month);
+    const daysInMonth = getDaysInMonth(selectedYear, month);
+
+    for (let i = 0; i < firstDay; i++) {
+      const empty = document.createElement('div');
+      calendar.appendChild(empty);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const cell = document.createElement('div');
+      const cellDate = new Date(selectedYear, month, day);
+      let className = 'neutral';
+
+      if (index !== "" && lastPaid) {
+        if (cellDate <= today) {
+          className = (cellDate.getTime() <= lastPaid.getTime()) ? 'paid' : 'unpaid';
+        } else {
+          className = 'future';
+        }
+      }
+
+      cell.className = `day ${className}`;
+      cell.textContent = day;
+      calendar.appendChild(cell);
+    }
+
+    monthDiv.appendChild(calendar);
+    grid.appendChild(monthDiv);
+  }
+}
+
+function renderHistory() {
+  const index = salespersonSelect.value;
+  const list = document.getElementById('payoutHistoryList');
+  list.innerHTML = '';
+  if (index !== "") {
+    const history = salespeople[index].history || [];
+    history.forEach(entry => {
+      const li = document.createElement('li');
+      li.textContent = entry;
+      list.appendChild(li);
+    });
+  }
+}
+
+salespersonSelect.addEventListener('change', () => {
+  renderCalendar();
+  renderHistory();
+});
+yearSelect.addEventListener('change', renderCalendar);
+renderCalendar();
+renderHistory();
+</script>
+</body>
+</html>
